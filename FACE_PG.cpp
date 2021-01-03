@@ -73,7 +73,7 @@ int main()
 	auto EtwpStackWalkApcOff = GetSymAddress(ntoskrnlP2, "EtwpStackWalkApc");
 	auto KiFilterFiberContextOff = GetSymAddress(ntoskrnlP2, "KiFilterFiberContext");
 	auto ImgpValidateImageHashWinLoadOff = GetSymAddress(winloadP2, "ImgpValidateImageHash");
-	auto ExRaiseDatatypeMisalignmentOff = GetSymAddress(ntoskrnlP1, "ExRaiseDatatypeMisalignment");
+	auto ExRaiseDatatypeMisalignmentOff = GetSymAddress(ntoskrnlP2, "ExRaiseDatatypeMisalignment");
 	auto ImgpValidateImageHashBootMgrOff = (BootType == FirmwareTypeUefi) ? 
 		GetSymAddress(bootmgrP2, ("ImgpValidateImageHash")) : (uint8_t*)0xFACEDEAD;
 	
