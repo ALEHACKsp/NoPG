@@ -27,8 +27,5 @@
     <ClInclude Include="Bytes.h">
       <Filter>Исходные файлы\Add</Filter>
     </ClInclude>
-    <ClInclude Include="Symbol.h">
-      <Filter>Исходные файлы\Add</Filter>
-    </ClInclude>
   </ItemGroup>
 </Project>

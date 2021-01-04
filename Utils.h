@@ -1,29 +1,3 @@
-//random
-__forceinline DWORD64 Rand() {
-	return __rdtsc() * __rdtsc() * __rdtsc();
-};
-
-void GenRndStr(wchar_t* RndStr)
-{
-	int RndLen = (Rand() % 12) + 8;
-
-	for (int i = 0; i < RndLen; i++) {
-		switch (Rand() % 3) {
-			case 0: {
-				RndStr[i] = ((char)('A' + Rand() % 26));
-			} break;
-
-			case 1: {
-				RndStr[i] = ((char)('a' + Rand() % 26));
-			} break;
-
-			case 2: {
-				RndStr[i] = ((char)('0' + Rand() % 10));
-			} break;
-		}
-	} RndStr[RndLen] = 0;
-}
-
 //sys mgr
 __forceinline bool PrivilegeMgr(const char* Name, bool Enable) {
 	HANDLE hToken; TOKEN_PRIVILEGES Priv; Priv.PrivilegeCount = 1;
@@ -262,4 +236,76 @@ DECLSPEC_NOINLINE //(VMProtect - Funcs - Mutation)
 void DecrtBytes(PBYTE Buff, DWORD Size, PBYTE Out) {
 	for (DWORD i = 0; i < Size; i++)
 		Out[i] = (BYTE)(Buff[i] ^ ((i + 32 * i + 78) + 45 + i));
+}
+
+//pdb parse
+uint8_t* GetSymAddress(const wchar_t* FilePath, const char* SymName, bool Cleanup = false)
+{
+	//build pdb path
+	char symPath[MAX_PATH]; *(uint32_t*)&symPath[0] = 0x2A565253;
+	GetWindowsDirectoryA((char*)&symPath[4], 64);
+	StrCat(symPath, Cleanup ? ("\\Temp\\symTmp") : ("\\Temp\\symTmp*http://msdl.microsoft.com/download/symbols"));
+
+	//clean folder
+	if (Cleanup)
+	{
+		//double null meme (hehehe)
+		symPath[StrLen(symPath) + 1] = 0;
+
+		//build delete struct
+		SHFILEOPSTRUCTA shfo = {
+		   NULL,
+		   FO_DELETE,
+		   &symPath[4],
+		   NULL,
+		   FOF_NO_UI,
+		   FALSE,
+		   NULL,
+		   NULL
+		};
+
+		//delete folder
+		SHFileOperationA(&shfo);
+		return nullptr;
+	}
+
+	//init pdb engine
+	SymInitialize(NtCurrentProcess(), symPath, false);
+
+	//set output mode
+	SymSetOptions(SYMOPT_IGNORE_NT_SYMPATH | SYMOPT_ALLOW_ABSOLUTE_SYMBOLS);
+
+	//load pdb file
+	auto ModBase = SymLoadModuleExW(NtCurrentProcess(), nullptr, FilePath, nullptr, 0, 0, nullptr, 0);
+	if (!ModBase) {
+		SymCleanup(NtCurrentProcess());
+		return nullptr;
+	}
+
+	//get pdb path
+	IMAGEHLP_MODULEW64 ModuleInfo;
+	ModuleInfo.SizeOfStruct = sizeof(IMAGEHLP_MODULEW64);
+	SymGetModuleInfoW64(NtCurrentProcess(), ModBase, &ModuleInfo);
+
+	//build symbol name
+	char SymNameFix[64];
+	StrCpy(ModuleInfo.ModuleName, SymNameFix);
+	StrCat(SymNameFix, ("!"));
+	StrCat(SymNameFix, SymName);
+
+	//get func
+	PBYTE ResolvedFunc = nullptr;
+	PSYMBOL_INFO_PACKAGE SIP = (PSYMBOL_INFO_PACKAGE)_alloca(sizeof(SYMBOL_INFO_PACKAGE));
+	SIP->si.MaxNameLen = sizeof(SIP->name);
+	SIP->si.SizeOfStruct = sizeof(SYMBOL_INFO);
+	if (SymFromName(NtCurrentProcess(), SymNameFix, &SIP->si)) {
+		ResolvedFunc = (PBYTE)SIP->si.Address - ModBase;
+	}
+
+	//cleanup
+	SymUnloadModule64(NtCurrentProcess(), ModBase);
+	SymCleanup(NtCurrentProcess());
+
+	//ret func offset
+	return ResolvedFunc;
 }

