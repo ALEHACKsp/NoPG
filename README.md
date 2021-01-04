@@ -1,1 +1,1 @@
-# Static Patch PatchGuard
+# Static Disable Patch PatchGuard
